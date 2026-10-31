@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>いきもの観察シアター</title>
+<style>
+/* 観察ノート風：上にチャンネル切り替えのラベル、下に大きなプレーヤー1つ */
+:root{
+  --bg:#eef2e8; --paper:#fbfcf7; --ink:#1f2a1c; --muted:#5d6b57;
+  --leaf:#2f6b3a; --leaf-soft:#d8e6d2; --line:#c9d6c1;
+  --font:"Yu Gothic UI","Yu Gothic","Hiragino Sans","Meiryo",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#141a13; --paper:#1c241b; --ink:#e6eedf; --muted:#9fb096;
+    --leaf:#8fca8f; --leaf-soft:#28392a; --line:#33432f; color-scheme:dark }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);line-height:1.6}
+.wrap{max-width:1100px;margin:0 auto;padding:24px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));display:grid;gap:18px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;border-bottom:2px solid var(--line);padding-bottom:12px}
+h1{margin:0;font-size:1.6rem;letter-spacing:.04em}
+header p{margin:0;color:var(--muted);font-size:.9rem}
+.tabs{display:flex;flex-wrap:wrap;gap:10px}
+.tab{appearance:none;border:2px solid var(--line);background:var(--paper);color:var(--ink);
+  font:inherit;font-weight:700;padding:10px 18px;border-radius:999px;cursor:pointer;
+  display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:0}
+.tab small{font-weight:400;color:var(--muted);font-size:.8rem}
+.tab[aria-selected="true"]{border-color:var(--leaf);background:var(--leaf-soft)}
+.tab:focus-visible{outline:3px solid var(--leaf);outline-offset:2px}
+.stage{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px}
+.player{position:relative;width:100%;aspect-ratio:16/9;max-width:100%;background:#000;border-radius:6px;overflow:hidden}
+.player iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.hint{margin:0;color:var(--muted);font-size:.88rem}
+footer{color:var(--muted);font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>いきもの観察シアター</h1>
+    <p>見たいチャンネルを選んでね</p>
+  </header>
+
+  <div class="tabs" role="tablist" id="tabs"></div>
+
+  <section class="stage">
+    <div class="player" id="player"></div>
+    <p class="hint">プレーヤー右上の「≡」マークから、そのチャンネルのほかの動画を選べます。新しい動画から順に並んでいます。</p>
+  </section>
+
+  <footer>動画はYouTube公式の埋め込みプレーヤーで再生しています。</footer>
+</div>
+
+<script>
+// 見せてよいチャンネル。追加するときはここに1行足す（id は UC… を UU… に変えたもの）
+const CHANNELS = [
+  { name: "平坂寛", note: "生きものを探して、つかまえて、調べる", uploads: "UUs5AFbnn9X4Y_dzLEeI_6OA" },
+  { name: "ゆるふわ生物学", note: "生物学の研究者たちのチャンネル", uploads: "UUjo-hXH1PX8Ls4sj6OAAcug" },
+  { name: "ひよりの虫日記", note: "虫が大好きな片田陽依さんの観察日記", uploads: "UUBYFb5Tynk3s7sy4KI8iJ8w" }
+];
+
+const tabs = document.getElementById("tabs");
+const player = document.getElementById("player");
+
+function show(i){
+  const ch = CHANNELS[i];
+  [...tabs.children].forEach((b,j)=>b.setAttribute("aria-selected", String(i===j)));
+  const src = "https://www.youtube-nocookie.com/embed/videoseries?list=" + ch.uploads + "&rel=0&modestbranding=1&playsinline=1";
+  player.innerHTML = '<iframe src="' + src + '" title="' + ch.name + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';
+}
+
+CHANNELS.forEach((ch,i)=>{
+  const b = document.createElement("button");
+  b.className = "tab"; b.type = "button"; b.id = "tab-" + i;
+  b.setAttribute("role","tab");
+  b.innerHTML = ch.name + "<small>" + ch.note + "</small>";
+  b.addEventListener("click", ()=>show(i));
+  tabs.appendChild(b);
+});
+show(0);
+</script>
+</body>
+</html>
