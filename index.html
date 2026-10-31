@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>いきもの観察シアター</title>
 <style>
-/* 観察ノート風：上にチャンネル切り替えのラベル、下に大きなプレーヤー1つ */
+/* 観察ノート風：上にチャンネル切り替え、中央にプレーヤー、下に動画のサムネイル一覧 */
 :root{
   --bg:#eef2e8; --paper:#fbfcf7; --ink:#1f2a1c; --muted:#5d6b57;
   --leaf:#2f6b3a; --leaf-soft:#d8e6d2; --line:#c9d6c1;
@@ -27,11 +27,16 @@ header p{margin:0;color:var(--muted);font-size:.9rem}
   display:flex;flex-direction:column;align-items:flex-start;text-align:left;min-width:0}
 .tab small{font-weight:400;color:var(--muted);font-size:.8rem}
 .tab[aria-selected="true"]{border-color:var(--leaf);background:var(--leaf-soft)}
-.tab:focus-visible{outline:3px solid var(--leaf);outline-offset:2px}
-.stage{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px}
+.tab:focus-visible,.thumb:focus-visible{outline:3px solid var(--leaf);outline-offset:2px}
+.stage{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:12px}
 .player{position:relative;width:100%;aspect-ratio:16/9;max-width:100%;background:#000;border-radius:6px;overflow:hidden}
 .player iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
-.hint{margin:0;color:var(--muted);font-size:.88rem}
+.status{margin:0;color:var(--muted);font-size:.88rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px}
+.thumb{appearance:none;border:2px solid transparent;background:none;padding:0;cursor:pointer;border-radius:6px;overflow:hidden;position:relative}
+.thumb img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--leaf-soft)}
+.thumb[aria-current="true"]{border-color:var(--leaf)}
+.thumb .no{position:absolute;left:6px;top:6px;background:rgba(0,0,0,.65);color:#fff;font-size:.75rem;padding:0 6px;border-radius:4px;font-variant-numeric:tabular-nums}
 footer{color:var(--muted);font-size:.8rem}
 </style>
 </head>
@@ -46,29 +51,108 @@ footer{color:var(--muted);font-size:.8rem}
 
   <section class="stage">
     <div class="player" id="player"></div>
-    <p class="hint">プレーヤー右上の「≡」マークから、そのチャンネルのほかの動画を選べます。新しい動画から順に並んでいます。</p>
+    <p class="status" id="status">動画の一覧を読み込んでいます…</p>
+    <div class="grid" id="grid"></div>
   </section>
 
-  <footer>動画はYouTube公式の埋め込みプレーヤーで再生しています。</footer>
+  <footer>動画はYouTube公式の埋め込みプレーヤーで再生しています。ショート動画は含みません。</footer>
 </div>
 
 <script>
-// 見せてよいチャンネル。追加するときはここに1行足す（id は UC… を UU… に変えたもの）
+// 見せてよいチャンネル。追加するときはここに1行足す（id は チャンネルIDの先頭 UC を外したもの）
 const CHANNELS = [
-  { name: "平坂寛", note: "生きものを探して、つかまえて、調べる", uploads: "UUs5AFbnn9X4Y_dzLEeI_6OA" },
-  { name: "ゆるふわ生物学", note: "生物学の研究者たちのチャンネル", uploads: "UUjo-hXH1PX8Ls4sj6OAAcug" },
-  { name: "ひよりの虫日記", note: "虫が大好きな片田陽依さんの観察日記", uploads: "UUBYFb5Tynk3s7sy4KI8iJ8w" }
+  { name: "平坂寛", note: "生きものを探して、つかまえて、調べる", id: "s5AFbnn9X4Y_dzLEeI_6OA" },
+  { name: "ゆるふわ生物学", note: "生物学の研究者たちのチャンネル", id: "jo-hXH1PX8Ls4sj6OAAcug" },
+  { name: "ひよりの虫日記", note: "虫が大好きな片田陽依さんの観察日記", id: "BYFb5Tynk3s7sy4KI8iJ8w" }
 ];
 
 const tabs = document.getElementById("tabs");
 const player = document.getElementById("player");
+const grid = document.getElementById("grid");
+const statusEl = document.getElementById("status");
+let frame = null, listed = false, handshake = null, timeout = null, currentIndex = 0, total = 0;
+
+function send(msg){
+  if (!frame || !frame.contentWindow) return;
+  frame.contentWindow.postMessage(JSON.stringify(Object.assign({ id: "p", channel: "widget" }, msg)), "*");
+}
 
 function show(i){
   const ch = CHANNELS[i];
   [...tabs.children].forEach((b,j)=>b.setAttribute("aria-selected", String(i===j)));
-  const src = "https://www.youtube-nocookie.com/embed/videoseries?list=" + ch.uploads + "&rel=0&modestbranding=1&playsinline=1";
-  player.innerHTML = '<iframe src="' + src + '" title="' + ch.name + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>';
+  listed = false; total = 0; currentIndex = 0;
+  grid.innerHTML = "";
+  statusEl.textContent = "動画の一覧を読み込んでいます…";
+  clearInterval(handshake); clearTimeout(timeout);
+
+  // UULF = そのチャンネルの通常動画（ショート・ライブを除く）
+  const src = "https://www.youtube-nocookie.com/embed/videoseries?list=UULF" + ch.id +
+    "&rel=0&playsinline=1&enablejsapi=1&origin=" + encodeURIComponent(location.origin);
+  player.innerHTML = "";
+  frame = document.createElement("iframe");
+  frame.src = src;
+  frame.title = ch.name;
+  frame.allow = "autoplay; encrypted-media; picture-in-picture; fullscreen";
+  frame.referrerPolicy = "strict-origin-when-cross-origin";
+  frame.allowFullscreen = true;
+  frame.addEventListener("load", ()=>{
+    clearInterval(handshake);
+    handshake = setInterval(()=>{
+      send({ event: "listening" });
+      send({ event: "command", func: "addEventListener", args: ["onError"] });
+      send({ event: "command", func: "addEventListener", args: ["onStateChange"] });
+    }, 300);
+  });
+  player.appendChild(frame);
+
+  timeout = setTimeout(()=>{
+    if (!listed) statusEl.textContent = "一覧を読み込めませんでした。プレーヤーの中に表示されている案内を確認してください。";
+  }, 10000);
 }
+
+function render(ids){
+  listed = true; total = ids.length;
+  clearTimeout(timeout);
+  statusEl.textContent = "見たい動画を選んでね（新しい順・" + ids.length + "本）";
+  grid.innerHTML = "";
+  ids.forEach((vid, i)=>{
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "thumb"; b.id = "v-" + vid;
+    b.setAttribute("aria-label", (i+1) + "番目の動画");
+    b.innerHTML = '<img loading="lazy" alt="" src="https://i.ytimg.com/vi/' + vid + '/mqdefault.jpg"><span class="no">' + (i+1) + "</span>";
+    b.addEventListener("click", ()=>{
+      send({ event: "command", func: "playVideoAt", args: [i] });
+      player.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    grid.appendChild(b);
+  });
+  mark(currentIndex);
+}
+
+function mark(i){
+  currentIndex = i;
+  [...grid.children].forEach((b,j)=>b.setAttribute("aria-current", String(i===j)));
+}
+
+window.addEventListener("message", (e)=>{
+  let host = "";
+  try { host = new URL(e.origin).hostname; } catch { return; }
+  if (!/(^|\.)youtube(-nocookie)?\.com$/.test(host)) return;
+  let d; try { d = typeof e.data === "string" ? JSON.parse(e.data) : e.data; } catch { return; }
+  if (!d) return;
+  clearInterval(handshake);
+  const info = d.info;
+  if (d.event === "onError" && total > 1) {
+    // 埋め込み再生できない動画は飛ばして次へ
+    statusEl.textContent = "この動画はここでは再生できないので、次の動画にしました。";
+    send({ event: "command", func: "playVideoAt", args: [(currentIndex + 1) % total] });
+    return;
+  }
+  if (info && typeof info === "object") {
+    if (Array.isArray(info.playlist) && info.playlist.length && !listed) render(info.playlist);
+    if (typeof info.playlistIndex === "number") mark(info.playlistIndex);
+  }
+});
 
 CHANNELS.forEach((ch,i)=>{
   const b = document.createElement("button");
